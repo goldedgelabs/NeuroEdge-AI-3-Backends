@@ -1,28 +1,19 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
+from db.db_manager import db_manager
+from utils.logger import log
 
-class CodeEngine(EngineBase):
-    async def run(self, input_data):
-        """
-        Executes code snippets or scripts from input_data.
-        """
-        code_snippet = input_data.get("code", "")
-        # WARNING: In production, use a safe sandbox for code execution
-        try:
-            exec_locals = {}
-            exec(code_snippet, {}, exec_locals)
-            result_value = exec_locals.get("result", "No result returned")
-        except Exception as e:
-            result_value = f"Execution error: {e}"
+class CodeEngine:
+    name = "CodeEngine"
 
+    async def run(self, input_data=None):
+        log(f"[{self.name}] Running with input: {input_data}")
+        # Simulate code execution or compilation
         result = {
-            "collection": "code_executions",
-            "id": input_data.get("id", "default_code"),
-            "input": code_snippet,
-            "result": result_value
+            "collection": "code",
+            "id": input_data.get("id") if input_data else "default",
+            "result": f"Executed {input_data}"
         }
-
-        await db.set(result["collection"], result["id"], result, "edge")
-        await event_bus.publish("db:update", result)
+        await db_manager.set(result["collection"], result["id"], result)
         return result
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
