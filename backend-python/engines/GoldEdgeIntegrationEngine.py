@@ -1,49 +1,52 @@
-# backend-python/engines/GoldEdgeIntegrationEngine.py
-
-from core.dbManager import DBManager
+from utils.logger import log
+from db.dbManager import db
 from core.eventBus import eventBus
-from core.logger import logger
 
 class GoldEdgeIntegrationEngine:
     name = "GoldEdgeIntegrationEngine"
 
     def __init__(self):
-        self.db = DBManager()
-        self.event_bus = eventBus
+        self.integrations = {}
 
-    async def run(self, input_data: dict):
-        """
-        Main engine method
-        Example: process or integrate gold/edge data
-        """
-        try:
-            record = {
-                "id": input_data.get("id"),
-                "source": input_data.get("source"),
-                "data": input_data.get("data")
-            }
+    async def add_integration(self, integration_id, config):
+        self.integrations[integration_id] = config
+        # Write to DB and emit event
+        await db.set("gold_edge_integrations", integration_id, config, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "gold_edge_integrations",
+            "key": integration_id,
+            "value": config,
+            "source": self.name
+        })
+        log(f"[{self.name}] Integration added: {integration_id}")
+        return {"success": True, "integration_id": integration_id}
 
-            # Write to edge DB
-            await self.db.set("gold_edge", record["id"], record, layer="edge")
-
-            # Emit DB update event
-            await self.event_bus.publish("db:update", {
-                "collection": "gold_edge",
-                "key": record["id"],
-                "value": record,
+    async def update_integration(self, integration_id, config):
+        if integration_id in self.integrations:
+            self.integrations[integration_id].update(config)
+            await db.set("gold_edge_integrations", integration_id, self.integrations[integration_id], storage="edge")
+            eventBus.publish("db:update", {
+                "collection": "gold_edge_integrations",
+                "key": integration_id,
+                "value": self.integrations[integration_id],
                 "source": self.name
             })
+            log(f"[{self.name}] Integration updated: {integration_id}")
+            return {"success": True}
+        return {"success": False, "message": "Integration not found"}
 
-            logger.log(f"[{self.name}] Processed GoldEdgeIntegration record: {record['id']}")
-            return record
+    async def remove_integration(self, integration_id):
+        if integration_id in self.integrations:
+            del self.integrations[integration_id]
+            await db.delete("gold_edge_integrations", integration_id)
+            eventBus.publish("db:delete", {
+                "collection": "gold_edge_integrations",
+                "key": integration_id,
+                "source": self.name
+            })
+            log(f"[{self.name}] Integration removed: {integration_id}")
+            return {"success": True}
+        return {"success": False, "message": "Integration not found"}
 
-        except Exception as e:
-            logger.error(f"[{self.name}] Error in run(): {e}")
-            return {"error": str(e)}
-
-    async def recover(self, error: Exception):
-        """
-        Recovery method
-        """
-        logger.warn(f"[{self.name}] Recovering from error: {error}")
-        return {"error": "Recovered from failure"}
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
