@@ -1,37 +1,43 @@
 # backend-python/agents/ARVAgent.py
 
-from ..core.dbManager import db
-from ..core.eventBus import eventBus
-from ..utils.logger import logger
+from backend_python.db.db_manager import DBManager
+from backend_python.core.event_bus import EventBus
+from backend_python.utils.logger import Logger
+
+db = DBManager()
+event_bus = EventBus()
+logger = Logger()
 
 class ARVAgent:
     name = "ARVAgent"
 
     def __init__(self):
-        # Subscribe to DB events
-        eventBus.subscribe("db:update", self.handle_db_update)
-        eventBus.subscribe("db:delete", self.handle_db_delete)
+        # Initialization logic if needed
+        logger.log(f"[ARVAgent] Initialized")
 
-    # Example method: process new ARV record
-    async def process_new_arv(self, data: dict):
-        collection = "arv_records"
-        record_id = data.get("id")
-        if record_id:
-            await db.set(collection, record_id, data, target="edge")
-            eventBus.publish("db:update", {"collection": collection, "key": record_id, "value": data, "source": self.name})
-            logger.log(f"[ARVAgent] New ARV record saved: {record_id}")
-            return {"success": True, "id": record_id}
-        return {"success": False, "error": "No ID in data"}
+    async def run(self, data: dict):
+        """
+        Main method to process input data.
+        """
+        # Example processing
+        result = {"collection": "arv_data", "id": data.get("id", "unknown"), "payload": data}
+        
+        # Write to DB and emit event
+        await db.set(result["collection"], result["id"], result, storage="edge")
+        event_bus.publish("db:update", {"collection": result["collection"], "key": result["id"], "value": result, "source": self.name})
+        
+        logger.log(f"[ARVAgent] DB updated → {result['collection']}:{result['id']}")
+        return result
 
-    async def handle_db_update(self, event: dict):
-        # Handle updates from DB if relevant
-        if event.get("collection") == "arv_records":
-            logger.log(f"[ARVAgent] Received DB update: {event['key']}")
-
-    async def handle_db_delete(self, event: dict):
-        # Handle deletions from DB if relevant
-        if event.get("collection") == "arv_records":
-            logger.log(f"[ARVAgent] Received DB delete: {event['key']}")
+    async def handleDBUpdate(self, data: dict):
+        """
+        React to DB updates
+        """
+        logger.log(f"[ARVAgent] Received DB update: {data}")
 
     async def recover(self, error: Exception):
-        logger.error(f"[ARVAgent] Recovering from error: {error}")
+        """
+        Recovery logic if run() fails
+        """
+        logger.error(f"[ARVAgent] Error recovered: {error}")
+        return {"error": "Recovered from failure"}
