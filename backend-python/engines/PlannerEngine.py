@@ -1,37 +1,49 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
-class PlannerEngine(EngineBase):
-    async def run(self, input_data):
-        """
-        Creates structured plans based on goals and constraints.
-        Can interact with other engines and agents to fetch required data.
-        """
-        goal = input_data.get("goal", "default_goal")
-        constraints = input_data.get("constraints", {})
+class PlannerEngine:
+    name = "PlannerEngine"
 
-        # Basic example: create steps based on goal
-        plan_steps = [
-            {"step": 1, "action": f"Analyze goal '{goal}'"},
-            {"step": 2, "action": "Gather required data from AnalyticsEngine"},
-            {"step": 3, "action": "Draft initial plan"},
-            {"step": 4, "action": "Validate with Doctrine rules"}
-        ]
+    def __init__(self):
+        self.tasks = {}
 
-        # Incorporate any constraints if provided
-        if constraints.get("priority"):
-            plan_steps.append({"step": 5, "action": f"Adjust plan based on priority {constraints['priority']}"})
+    async def create_plan(self, plan_id: str, plan_data: dict):
+        """Create or update a planning task."""
+        self.tasks[plan_id] = plan_data
 
-        result = {
+        # Save to DB and emit update event
+        await db.set("plans", plan_id, plan_data, storage="edge")
+        eventBus.publish("db:update", {
             "collection": "plans",
-            "id": input_data.get("id", "plan_default"),
-            "goal": goal,
-            "steps": plan_steps
-        }
+            "key": plan_id,
+            "value": plan_data,
+            "source": self.name
+        })
+        log(f"[{self.name}] Plan created/updated: {plan_id}")
+        return plan_data
 
-        # Save to DB and notify subscribers
-        await db.set(result["collection"], result["id"], result, "edge")
-        await event_bus.publish("db:update", result)
+    async def execute_plan(self, plan_id: str):
+        """Execute the plan by returning steps or summary."""
+        plan = self.tasks.get(plan_id)
+        if not plan:
+            return {"error": "Plan not found"}
 
-        return result
+        # Example execution logic
+        steps = plan.get("steps", [])
+        log(f"[{self.name}] Executing plan {plan_id} with {len(steps)} steps")
+        return {"plan_id": plan_id, "steps": steps, "status": "executed"}
+
+    async def delete_plan(self, plan_id: str):
+        """Delete plan from system."""
+        await db.delete("plans", plan_id, storage="edge")
+        eventBus.publish("db:delete", {
+            "collection": "plans",
+            "key": plan_id,
+            "source": self.name
+        })
+        log(f"[{self.name}] Deleted plan: {plan_id}")
+        self.tasks.pop(plan_id, None)
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
