@@ -1,36 +1,57 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
-import datetime
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
-class MonitoringEngine(EngineBase):
-    async def run(self, input_data):
-        """
-        Monitors system health, logs, performance metrics.
-        """
-        metric_id = f"metric_{int(datetime.datetime.utcnow().timestamp())}"
-        metrics = input_data.get("metrics", {"cpu": 0, "memory": 0, "disk": 0})
 
-        record = {
-            "collection": "system_metrics",
-            "id": metric_id,
-            "metrics": metrics,
-            "timestamp": datetime.datetime.utcnow().isoformat()
-        }
+class MonitoringEngine:
+    name = "MonitoringEngine"
 
-        # Save to DB
-        await db.set(record["collection"], record["id"], record, "edge")
+    def __init__(self):
+        self.statuses = {}
 
-        # Publish event
-        await event_bus.publish("db:update", record)
+    async def add_status(self, system_id: str, status: dict):
+        """Add a new monitoring status for a system."""
+        self.statuses[system_id] = status
 
-        return record
+        await db.set("statuses", system_id, status, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "statuses",
+            "key": system_id,
+            "value": status,
+            "source": self.name
+        })
+        log(f"[{self.name}] Added status for: {system_id}")
+        return status
 
-    async def get_metrics(self, since: str = None):
-        """
-        Retrieve metrics optionally filtered by timestamp
-        """
-        all_metrics = await db.getAll("system_metrics", "edge")
-        if since:
-            all_metrics = [m for m in all_metrics if m["timestamp"] >= since]
-        return all_metrics
+    async def update_status(self, system_id: str, patch: dict):
+        """Update an existing system status."""
+        existing = await db.get("statuses", system_id, storage="edge") or {}
+        updated = {**existing, **patch, "id": system_id}
+
+        await db.set("statuses", system_id, updated, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "statuses",
+            "key": system_id,
+            "value": updated,
+            "source": self.name
+        })
+        log(f"[{self.name}] Updated status for: {system_id}")
+        return updated
+
+    async def delete_status(self, system_id: str):
+        """Delete a system status."""
+        await db.delete("statuses", system_id)
+        eventBus.publish("db:delete", {
+            "collection": "statuses",
+            "key": system_id,
+            "source": self.name
+        })
+        log(f"[{self.name}] Deleted status for: {system_id}")
+        return {"success": True, "id": system_id}
+
+    async def get_status(self, system_id: str):
+        """Retrieve a system status."""
+        return await db.get("statuses", system_id, storage="edge")
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
