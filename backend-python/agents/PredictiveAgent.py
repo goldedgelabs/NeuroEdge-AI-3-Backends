@@ -1,43 +1,43 @@
-# backend-python/agents/PredictiveAgent.py
-from core.AgentBase import AgentBase
-from db.dbManager import db
-from utils.logger import logger
+# backend-python/agents/PredictionAgent.py
+
+from ..core.dbManager import db
+from ..core.eventBus import eventBus
+from ..utils.logger import logger
 import time
 import random
 
-class PredictiveAgent(AgentBase):
-    name = "PredictiveAgent"
+class PredictionAgent:
+    name = "PredictionAgent"
 
-    async def handle(self, task: dict):
+    def __init__(self):
+        # Subscribe to DB events
+        eventBus.subscribe("db:update", self.handle_db_update)
+        eventBus.subscribe("db:delete", self.handle_db_delete)
+
+    async def predict(self, collection: str, input_data: dict) -> dict:
         """
-        Generates predictions based on provided data, patterns, trends, or signals.
-        Supports forecasting for analytics, markets, health, device behavior, etc.
+        Generate a simple prediction for the given input data.
         """
-        try:
-            data = task.get("data", [])
-            target = task.get("target", "unknown")
-            horizon = task.get("horizon", "short-term")
+        prediction_result = {
+            "timestamp": time.time(),
+            "input": input_data,
+            "prediction": random.choice(["high", "medium", "low"]),  # Placeholder example
+            "confidence": round(random.uniform(0.5, 0.99), 2)
+        }
 
-            # Very simplified placeholder predictive model
-            prediction_value = random.uniform(0, 1) * (len(data) + 1)
+        # Save prediction to DB
+        record_id = f"prediction_{int(time.time()*1000)}"
+        await db.set(collection, record_id, prediction_result, target="edge")
+        eventBus.publish("db:update", {"collection": collection, "key": record_id, "value": prediction_result, "source": self.name})
 
-            prediction = {
-                "target": target,
-                "horizon": horizon,
-                "confidence": round(random.uniform(0.6, 0.99), 2),
-                "timestamp": time.time(),
-                "value": round(prediction_value, 4),
-            }
+        logger.log(f"[PredictionAgent] Prediction saved: {collection}:{record_id}")
+        return prediction_result
 
-            record = {
-                "id": self.generate_id(),
-                "collection": "predictions",
-                "prediction": prediction
-            }
+    async def handle_db_update(self, event: dict):
+        logger.log(f"[PredictionAgent] DB update received: {event.get('collection')}:{event.get('key')}")
 
-            await db.set("predictions", record["id"], record)
-            return record
+    async def handle_db_delete(self, event: dict):
+        logger.log(f"[PredictionAgent] DB delete received: {event.get('collection')}:{event.get('key')}")
 
-        except Exception as e:
-            logger.error(f"[PredictiveAgent] Error: {e}")
-            return {"error": str(e)}
+    async def recover(self, error: Exception):
+        logger.error(f"[PredictionAgent] Recovering from error: {error}")
