@@ -1,61 +1,47 @@
-# backend-python/engines/SchedulerEngine.py
-
-from typing import Any, Dict
-from backend_python.db.db_manager import db
-from backend_python.core.event_bus import event_bus
-from backend_python.utils.logger import logger
-import asyncio
-import datetime
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
 class SchedulerEngine:
     name = "SchedulerEngine"
 
     def __init__(self):
-        self.scheduled_tasks = []
+        self.tasks = {}
 
-    async def schedule_task(self, task_name: str, run_at: datetime.datetime, payload: Dict[str, Any]):
-        """
-        Schedule a task to be executed at a specific time.
-        """
-        task_record = {
-            "collection": "scheduled_tasks",
-            "id": f"{task_name}_{int(run_at.timestamp())}",
-            "task_name": task_name,
-            "run_at": run_at.isoformat(),
-            "payload": payload,
-            "status": "pending",
-            "source": self.name
-        }
+    async def add_task(self, task_id: str, task_data: dict):
+        """Add or update a scheduled task."""
+        self.tasks[task_id] = task_data
 
-        await db.set(task_record["collection"], task_record["id"], task_record, "edge")
-        event_bus.publish("db:update", {
-            "collection": task_record["collection"],
-            "key": task_record["id"],
-            "value": task_record,
+        # Save to DB and emit update event
+        await db.set("tasks", task_id, task_data, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "tasks",
+            "key": task_id,
+            "value": task_data,
             "source": self.name
         })
-        logger.log(f"[{self.name}] Task scheduled: {task_record['id']}")
-        self.scheduled_tasks.append(task_record)
+        log(f"[{self.name}] Task added/updated: {task_id}")
+        return task_data
 
-    async def run(self, input_data: Dict[str, Any] = None):
-        """
-        Check for tasks that should run now and execute them.
-        """
-        now = datetime.datetime.utcnow()
-        tasks_to_run = [t for t in self.scheduled_tasks if datetime.datetime.fromisoformat(t["run_at"]) <= now and t["status"] == "pending"]
+    async def get_tasks(self, criteria: dict):
+        """Retrieve tasks matching criteria."""
+        results = [
+            t for t in self.tasks.values()
+            if all(t.get(k) == v for k, v in criteria.items())
+        ]
+        log(f"[{self.name}] Tasks retrieved: {results}")
+        return results
 
-        for task in tasks_to_run:
-            logger.log(f"[{self.name}] Executing task: {task['id']}")
-            task["status"] = "completed"
-            await db.set(task["collection"], task["id"], task, "edge")
-            event_bus.publish("db:update", {
-                "collection": task["collection"],
-                "key": task["id"],
-                "value": task,
-                "source": self.name
-            })
+    async def remove_task(self, task_id: str):
+        """Remove a task."""
+        await db.delete("tasks", task_id, storage="edge")
+        eventBus.publish("db:delete", {
+            "collection": "tasks",
+            "key": task_id,
+            "source": self.name
+        })
+        log(f"[{self.name}] Removed task: {task_id}")
+        self.tasks.pop(task_id, None)
 
-        return {"executed": len(tasks_to_run)}
-
-    async def recover(self, error: Exception):
-        logger.error(f"[{self.name}] Recovery from error: {error}")
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
