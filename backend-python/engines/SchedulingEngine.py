@@ -1,39 +1,47 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
-import datetime
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
-class SchedulingEngine(EngineBase):
-    async def run(self, input_data):
-        """
-        Schedules tasks or events based on input instructions.
-        """
-        task_id = input_data.get("id", f"task_{datetime.datetime.utcnow().timestamp()}")
-        task_name = input_data.get("name", "Unnamed Task")
-        schedule_time = input_data.get("schedule_time", datetime.datetime.utcnow().isoformat())
+class SchedulingEngine:
+    name = "SchedulingEngine"
 
-        task_record = {
-            "collection": "tasks",
-            "id": task_id,
-            "name": task_name,
-            "schedule_time": schedule_time,
-            "created_at": datetime.datetime.utcnow().isoformat()
-        }
+    def __init__(self):
+        self.schedule = {}
 
-        # Save task to DB
-        await db.set(task_record["collection"], task_record["id"], task_record, "edge")
+    async def add_schedule(self, schedule_id: str, schedule_data: dict):
+        """Add or update a schedule."""
+        self.schedule[schedule_id] = schedule_data
 
-        # Publish update to event bus
-        await event_bus.publish("db:update", task_record)
+        # Save to DB and emit update event
+        await db.set("schedules", schedule_id, schedule_data, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "schedules",
+            "key": schedule_id,
+            "value": schedule_data,
+            "source": self.name
+        })
+        log(f"[{self.name}] Schedule added/updated: {schedule_id}")
+        return schedule_data
 
-        return task_record
+    async def get_schedule(self, criteria: dict):
+        """Retrieve schedules matching criteria."""
+        results = [
+            s for s in self.schedule.values()
+            if all(s.get(k) == v for k, v in criteria.items())
+        ]
+        log(f"[{self.name}] Schedules retrieved: {results}")
+        return results
 
-    async def get_tasks(self, date: str = None):
-        """
-        Retrieve all tasks, optionally filtered by date (YYYY-MM-DD)
-        """
-        all_tasks = await db.getAll("tasks", "edge")
-        if date:
-            filtered_tasks = [t for t in all_tasks if t["schedule_time"].startswith(date)]
-            return filtered_tasks
-        return all_tasks
+    async def remove_schedule(self, schedule_id: str):
+        """Remove a schedule."""
+        await db.delete("schedules", schedule_id, storage="edge")
+        eventBus.publish("db:delete", {
+            "collection": "schedules",
+            "key": schedule_id,
+            "source": self.name
+        })
+        log(f"[{self.name}] Removed schedule: {schedule_id}")
+        self.schedule.pop(schedule_id, None)
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
