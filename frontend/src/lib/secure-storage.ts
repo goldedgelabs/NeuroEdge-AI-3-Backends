@@ -1,5 +1,4 @@
 // src/lib/secure-storage.ts
-
 /**
  * Local AES-GCM secure storage for NeuroEdge
  * Used by: encrypted-db-adapter, offline-db, message queue
@@ -193,4 +192,4 @@ export async function decryptJSON(payload: string): Promise<any> {
   );
 
   return JSON.parse(ab2str(plain));
-      }
+  }
