@@ -1,31 +1,41 @@
-# NotificationAgent.py
-# Agent responsible for sending notifications via multiple channels (email, SMS, push)
+# backend-python/agents/NotificationAgent.py
+
+from ..core.dbManager import db
+from ..core.eventBus import eventBus
+from ..utils.logger import logger
+import time
 
 class NotificationAgent:
+    name = "NotificationAgent"
+
     def __init__(self):
-        self.name = "NotificationAgent"
+        # Subscribe to DB events
+        eventBus.subscribe("db:update", self.handle_db_update)
+        eventBus.subscribe("db:delete", self.handle_db_delete)
 
-    async def send_notification(self, message: str, channels: list = None, user_id: str = None):
+    async def send_notification(self, user_id: str, message: str, meta: dict = None):
         """
-        Send notification to user or system via specified channels.
-        channels: ["email", "sms", "push"]
+        Sends a notification to a user and logs it to the database.
         """
-        if channels is None:
-            channels = ["email"]  # default channel
+        notification = {
+            "user_id": user_id,
+            "message": message,
+            "meta": meta or {},
+            "timestamp": time.time()
+        }
 
-        results = {}
-        for channel in channels:
-            # Stub: simulate sending notification
-            results[channel] = f"Sent to {user_id or 'system'} via {channel}: {message}"
-            print(results[channel])
+        notif_id = f"notif_{int(time.time()*1000)}"
+        await db.set("notifications", notif_id, notification, target="edge")
+        eventBus.publish("db:update", {"collection": "notifications", "key": notif_id, "value": notification, "source": self.name})
 
-        return results
+        logger.log(f"[NotificationAgent] Notification sent to {user_id}: {message}")
+        return notification
 
-    async def handleDBUpdate(self, data):
-        """
-        React to DB updates if notification is needed
-        """
-        print(f"[NotificationAgent] DB Update received: {data}")
+    async def handle_db_update(self, event: dict):
+        logger.log(f"[NotificationAgent] DB update received: {event.get('collection')}:{event.get('key')}")
 
-    async def recover(self, error):
-        print(f"[NotificationAgent] Recovered from error: {error}")
+    async def handle_db_delete(self, event: dict):
+        logger.log(f"[NotificationAgent] DB delete received: {event.get('collection')}:{event.get('key')}")
+
+    async def recover(self, error: Exception):
+        logger.error(f"[NotificationAgent] Recovering from error: {error}")
