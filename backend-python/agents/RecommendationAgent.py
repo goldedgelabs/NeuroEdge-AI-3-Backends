@@ -1,31 +1,49 @@
-# RecommendationAgent.py
-# Agent responsible for generating recommendations based on user behavior and data
+# backend-python/agents/RecommendationAgent.py
+
+from ..core.dbManager import db
+from ..core.eventBus import eventBus
+from ..utils.logger import logger
+import time
 
 class RecommendationAgent:
+    name = "RecommendationAgent"
+
     def __init__(self):
-        self.name = "RecommendationAgent"
-        self.recommendation_models = {}
+        # Subscribe to DB events
+        eventBus.subscribe("db:update", self.handle_db_update)
+        eventBus.subscribe("db:delete", self.handle_db_delete)
 
-    def register_model(self, model_name: str, model):
-        self.recommendation_models[model_name] = model
-        print(f"[RecommendationAgent] Model registered: {model_name}")
+    async def recommend(self, collection: str, user_data: dict) -> dict:
+        """
+        Generate recommendations based on user data.
+        """
+        # Example: simple recommendation logic
+        recommendations = [f"item_{i}" for i in range(1, 6)]
 
-    def unregister_model(self, model_name: str):
-        if model_name in self.recommendation_models:
-            del self.recommendation_models[model_name]
-            print(f"[RecommendationAgent] Model unregistered: {model_name}")
+        result = {
+            "timestamp": time.time(),
+            "user": user_data,
+            "recommendations": recommendations
+        }
 
-    async def recommend(self, model_name: str, user_data):
-        if model_name not in self.recommendation_models:
-            return {"error": f"Model {model_name} not found"}
-        model = self.recommendation_models[model_name]
-        try:
-            recommendations = model.recommend(user_data)
-            print(f"[RecommendationAgent] Recommendations using {model_name}: {recommendations}")
-            return recommendations
-        except Exception as e:
-            await self.recover(e)
-            return {"error": "Recommendation failed"}
+        # Save recommendations to DB
+        record_id = f"recommend_{int(time.time()*1000)}"
+        await db.set(collection, record_id, result, target="edge")
+        eventBus.publish("db:update", {
+            "collection": collection,
+            "key": record_id,
+            "value": result,
+            "source": self.name
+        })
 
-    async def recover(self, error):
-        print(f"[RecommendationAgent] Recovered from error: {error}")
+        logger.log(f"[RecommendationAgent] Recommendations saved: {collection}:{record_id}")
+        return result
+
+    async def handle_db_update(self, event: dict):
+        logger.log(f"[RecommendationAgent] DB update received: {event.get('collection')}:{event.get('key')}")
+
+    async def handle_db_delete(self, event: dict):
+        logger.log(f"[RecommendationAgent] DB delete received: {event.get('collection')}:{event.get('key')}")
+
+    async def recover(self, error: Exception):
+        logger.error(f"[RecommendationAgent] Recovering from error: {error}")
