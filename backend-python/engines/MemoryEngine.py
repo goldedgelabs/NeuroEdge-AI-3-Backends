@@ -1,39 +1,57 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
-import datetime
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
-class MemoryEngine(EngineBase):
-    async def run(self, input_data):
-        """
-        Handles storing and retrieving long-term and short-term memory
-        for NeuroEdge system operations.
-        """
-        memory_type = input_data.get("type", "short-term")  # short-term or long-term
-        content = input_data.get("content", "")
-        memory_id = input_data.get("id", f"mem_{datetime.datetime.utcnow().timestamp()}")
 
-        # Prepare memory record
-        memory_record = {
-            "collection": "memory",
-            "id": memory_id,
-            "type": memory_type,
-            "content": content,
-            "timestamp": datetime.datetime.utcnow().isoformat()
-        }
+class MemoryEngine:
+    name = "MemoryEngine"
 
-        # Save memory to DB
-        await db.set(memory_record["collection"], memory_record["id"], memory_record, "edge")
+    def __init__(self):
+        self.memories = {}
 
-        # Publish update to event bus for other agents/engines
-        await event_bus.publish("db:update", memory_record)
+    async def store_memory(self, memory_id: str, data: dict):
+        """Store a new memory."""
+        self.memories[memory_id] = data
 
-        return memory_record
+        await db.set("memories", memory_id, data, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "memories",
+            "key": memory_id,
+            "value": data,
+            "source": self.name
+        })
+        log(f"[{self.name}] Stored memory: {memory_id}")
+        return data
 
-    async def recall(self, query: str):
-        """
-        Simple retrieval based on query string
-        """
-        all_memories = await db.getAll("memory", "edge")
-        results = [m for m in all_memories if query.lower() in m.get("content", "").lower()]
-        return results
+    async def update_memory(self, memory_id: str, patch: dict):
+        """Update an existing memory."""
+        existing = await db.get("memories", memory_id, storage="edge") or {}
+        updated = {**existing, **patch, "id": memory_id}
+
+        await db.set("memories", memory_id, updated, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "memories",
+            "key": memory_id,
+            "value": updated,
+            "source": self.name
+        })
+        log(f"[{self.name}] Updated memory: {memory_id}")
+        return updated
+
+    async def delete_memory(self, memory_id: str):
+        """Delete a memory."""
+        await db.delete("memories", memory_id)
+        eventBus.publish("db:delete", {
+            "collection": "memories",
+            "key": memory_id,
+            "source": self.name
+        })
+        log(f"[{self.name}] Deleted memory: {memory_id}")
+        return {"success": True, "id": memory_id}
+
+    async def get_memory(self, memory_id: str):
+        """Retrieve a memory."""
+        return await db.get("memories", memory_id, storage="edge")
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
