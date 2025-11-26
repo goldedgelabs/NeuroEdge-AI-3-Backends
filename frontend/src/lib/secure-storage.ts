@@ -4,7 +4,6 @@
  * Local AES-GCM secure storage for NeuroEdge
  * Used by: encrypted-db-adapter, offline-db, message queue
  */
-
 const KEY_DB = "neuroedge-secure-key";
 const KEY_STORE = "keys";
 const KEY_ID = "master-key-v1";
