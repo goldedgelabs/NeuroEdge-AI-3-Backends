@@ -1,48 +1,100 @@
-import { db } from '@/lib/offline-db';
 'use client';
+
 import React, { useEffect, useRef, useState } from 'react';
+import { db } from '@/lib/offline-db';
 import { getStreamURL } from '@/services/backendSelector';
 
-export default function ChatStream(){
+export default function ChatStream() {
   const [messages, setMessages] = useState<string[]>([]);
   const evtRef = useRef<EventSource | null>(null);
 
-  useEffect(()=>{ (async ()=>{ try{ const cached = await db.messages.toArray(); if(cached && cached.length) setMessages(cached.map(m=>m.text)); }catch{} })();
+  useEffect(() => {
     let mounted = true;
-    async function start(){
+
+    // 1. Load OFFLINE cached conversations (Dexie)
+    (async () => {
+      try {
+        const cached = await db.messages.toArray();
+        if (cached && cached.length && mounted) {
+          setMessages(cached.map((m) => m.text));
+        }
+      } catch (e) {
+        console.warn("Dexie load error", e);
+      }
+    })();
+
+    // 2. Start the streaming connection
+    async function start() {
       const url = await getStreamURL();
-      if(!url) return;
+      if (!url) {
+        console.error("No backend URL: backendSelector returned null");
+        return;
+      }
+
       const es = new EventSource(url);
       evtRef.current = es;
-      es.onmessage = (ev) => {
-        try{
-          // server sends token fragments as plain text or JSON {token: "...", done: bool}
-          const raw = ev.data;
-          // example: plain token or JSON
-          let token = raw;
-          try{ const parsed = JSON.parse(raw); if(parsed.token) token = parsed.token; }catch{}
-          if(!mounted) return;
-          setMessages(prev => {
-            const last = prev[prev.length-1] ?? '';
-            const updated = [...prev.slice(0, -1), last + token];
-            if(prev.length===0) return [token];
-            return updated;
+
+      es.onmessage = async (ev) => {
+        if (!mounted) return;
+
+        let token = ev.data;
+
+        // Support JSON { token: "hi", done: false }
+        try {
+          const parsed = JSON.parse(ev.data);
+          if (parsed?.token) token = parsed.token;
+        } catch {
+          /* plain text token */
+        }
+
+        setMessages((prev) => {
+          if (prev.length === 0) {
+            const next = [token];
+            // save offline
+            db.messages.add({ text: token });
+            return next;
+          }
+
+          const last = prev[prev.length - 1];
+          const updated = [...prev.slice(0, -1), last + token];
+
+          // update offline db
+          db.messages.clear().then(() => {
+            updated.forEach((msg) => db.messages.add({ text: msg }));
           });
-        }catch(e){ console.error('sse parse', e); }
+
+          return updated;
+        });
       };
-      es.onerror = (err)=>{ console.error('sse error', err); es.close(); };
+
+      es.onerror = (err) => {
+        console.error("SSE error", err);
+        es.close();
+      };
     }
+
     start();
-    return ()=>{ mounted=false; if(evtRef.current) evtRef.current.close(); };
+
+    // cleanup on unmount
+    return () => {
+      mounted = false;
+      if (evtRef.current) evtRef.current.close();
+    };
   }, []);
 
   return (
-    <div>
+    <div className="p-3">
       <div className="space-y-3">
-        {messages.map((m,i)=>(
-          <div key={i} className="p-3 bg-white border rounded" data-testid="assistant-message-stream">{m}</div>
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className="p-3 bg-white dark:bg-neutral-800 border dark:border-neutral-700 rounded shadow-sm"
+            data-testid="assistant-message-stream"
+          >
+            {m}
+          </div>
         ))}
       </div>
     </div>
   );
-}
+          }
