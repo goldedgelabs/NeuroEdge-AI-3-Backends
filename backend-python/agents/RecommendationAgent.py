@@ -15,19 +15,21 @@ class RecommendationAgent:
 
     async def recommend(self, collection: str, user_data: dict) -> dict:
         """
-        Generate recommendations based on user data.
+        Generate recommendations based on user data and save results.
         """
-        # Example: simple recommendation logic
-        recommendations = [f"item_{i}" for i in range(1, 6)]
+        if not user_data:
+            logger.warn(f"[RecommendationAgent] No user data provided")
+            return {"error": "No user data provided"}
 
+        # Example recommendation logic: placeholder
+        recommendations = [f"item_{i}" for i in range(1, 6)]
         result = {
-            "timestamp": time.time(),
-            "user": user_data,
-            "recommendations": recommendations
+            "user": user_data.get("id", "unknown"),
+            "recommendations": recommendations,
+            "generated_at": time.time()
         }
 
-        # Save recommendations to DB
-        record_id = f"recommend_{int(time.time()*1000)}"
+        record_id = f"recommendation_{int(time.time()*1000)}"
         await db.set(collection, record_id, result, target="edge")
         eventBus.publish("db:update", {
             "collection": collection,
@@ -37,7 +39,7 @@ class RecommendationAgent:
         })
 
         logger.log(f"[RecommendationAgent] Recommendations saved: {collection}:{record_id}")
-        return result
+        return {"record_id": record_id, "recommendations": recommendations}
 
     async def handle_db_update(self, event: dict):
         logger.log(f"[RecommendationAgent] DB update received: {event.get('collection')}:{event.get('key')}")
