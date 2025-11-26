@@ -1,43 +1,27 @@
-# backend-python/engines/TelemetryEngine.py
-
-from typing import Any, Dict
-from backend_python.db.db_manager import db
-from backend_python.core.event_bus import event_bus
-from backend_python.utils.logger import logger
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
 class TelemetryEngine:
     name = "TelemetryEngine"
 
     def __init__(self):
-        self.metrics = {}
+        self.telemetry_data = {}
 
-    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Collect and store telemetry data from devices or applications.
-        """
-        metric_id = input_data.get("metric_id", "unknown_metric")
-        metric_record = {
+    async def record_metric(self, metric_id: str, data: dict):
+        """Record telemetry metric."""
+        self.telemetry_data[metric_id] = data
+
+        # Save to DB and emit update
+        await db.set("telemetry", metric_id, data, storage="edge")
+        eventBus.publish("db:update", {
             "collection": "telemetry",
-            "id": metric_id,
-            "type": input_data.get("type", "generic"),
-            "value": input_data.get("value", None),
-            "timestamp": input_data.get("timestamp"),
-            "source": self.name
-        }
-
-        # Save to DB (edge)
-        await db.set(metric_record["collection"], metric_record["id"], metric_record, "edge")
-
-        # Publish DB update event
-        event_bus.publish("db:update", {
-            "collection": metric_record["collection"],
-            "key": metric_record["id"],
-            "value": metric_record,
+            "key": metric_id,
+            "value": data,
             "source": self.name
         })
+        log(f"[{self.name}] Metric recorded: {metric_id}")
+        return {"metric_id": metric_id, "status": "recorded"}
 
-        logger.log(f"[{self.name}] DB updated: {metric_record['collection']}:{metric_record['id']}")
-        return metric_record
-
-    async def recover(self, error: Exception):
-        logger.error(f"[{self.name}] Recovery from error: {error}")
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
