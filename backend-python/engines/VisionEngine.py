@@ -1,31 +1,29 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
-class VisionEngine(EngineBase):
-    async def run(self, input_data):
-        """
-        Processes image/video input for recognition, analysis, or tagging.
-        """
-        media_path = input_data.get("file_path", "")
-        analysis_result = {}
+class VisionEngine:
+    name = "VisionEngine"
 
-        try:
-            # Placeholder: Use a real vision processing library (OpenCV, PIL, etc.)
-            analysis_result = {
-                "summary": f"Analysis completed for {media_path}",
-                "tags": ["example_tag1", "example_tag2"]
-            }
-        except Exception as e:
-            analysis_result = {"error": str(e)}
+    def __init__(self):
+        self.images = {}
 
-        result = {
-            "collection": "vision_analysis",
-            "id": input_data.get("id", "default_vision"),
-            "file_path": media_path,
-            "analysis": analysis_result
-        }
+    async def process_image(self, image_id: str, image_data: bytes):
+        """Process and analyze image."""
+        # For demo, just store a "processed" version
+        analysis_result = f"processed_{len(image_data)}bytes"
+        self.images[image_id] = analysis_result
 
-        await db.set(result["collection"], result["id"], result, "edge")
-        await event_bus.publish("db:update", result)
-        return result
+        # Save to DB and emit update
+        await db.set("images", image_id, {"image_id": image_id, "result": analysis_result}, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "images",
+            "key": image_id,
+            "value": {"image_id": image_id, "result": analysis_result},
+            "source": self.name
+        })
+        log(f"[{self.name}] Image processed and stored: {image_id}")
+        return {"image_id": image_id, "result": analysis_result}
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
