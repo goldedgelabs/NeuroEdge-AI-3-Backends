@@ -1,43 +1,30 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
-from translation_service import translate_text  # Assume a translation module/service
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
-class TranslationEngine(EngineBase):
-    async def run(self, input_data):
-        """
-        Translates text from source language to target language.
-        """
-        text = input_data.get("text", "")
-        source_lang = input_data.get("source_lang", "en")
-        target_lang = input_data.get("target_lang", "en")
+class TranslationEngine:
+    name = "TranslationEngine"
 
-        translated_text = await translate_text(text, source_lang, target_lang)
+    def __init__(self):
+        self.translations = {}
 
-        translation_id = input_data.get("id", f"translation_{hash(text)}")
-        record = {
+    async def translate_text(self, text: str, target_lang: str):
+        """Translate text to target language."""
+        # For demo, just store the "translated" text
+        translated_text = f"{text} [{target_lang}]"
+        record_id = f"{hash(text)}_{target_lang}"
+        self.translations[record_id] = translated_text
+
+        # Save to DB and emit update
+        await db.set("translations", record_id, {"text": text, "translated": translated_text, "lang": target_lang}, storage="edge")
+        eventBus.publish("db:update", {
             "collection": "translations",
-            "id": translation_id,
-            "text": text,
-            "translated_text": translated_text,
-            "source_lang": source_lang,
-            "target_lang": target_lang
-        }
+            "key": record_id,
+            "value": {"text": text, "translated": translated_text, "lang": target_lang},
+            "source": self.name
+        })
+        log(f"[{self.name}] Translated text stored: {record_id}")
+        return {"record_id": record_id, "translated": translated_text}
 
-        # Save to DB
-        await db.set(record["collection"], record["id"], record, "edge")
-
-        # Publish event
-        await event_bus.publish("db:update", record)
-
-        return record
-
-    async def bulk_translate(self, texts: list, source_lang="en", target_lang="en"):
-        """
-        Translate multiple texts asynchronously.
-        """
-        results = []
-        for t in texts:
-            result = await self.run({"text": t, "source_lang": source_lang, "target_lang": target_lang})
-            results.append(result)
-        return results
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
