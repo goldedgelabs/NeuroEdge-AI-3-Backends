@@ -1,59 +1,43 @@
-# ARVEngine.py
-from core.db_manager import DBManager
-from core.event_bus import EventBus
-from core.logger import logger
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
 class ARVEngine:
     name = "ARVEngine"
 
     def __init__(self):
-        self.db = DBManager()
-        self.event_bus = EventBus()
-        logger.log(f"[ARVEngine] Initialized {self.name}")
+        self.records = {}
 
-    async def run(self, input_data: dict):
-        """
-        Main entry for the engine.
-        Example input_data: {"patient_id": "123", "action": "analyze"}
-        """
-        try:
-            result = await self.analyze_patient(input_data)
-            
-            # DB integration
-            if "collection" in result and "id" in result:
-                await self.db.set(result["collection"], result["id"], result)
-                self.event_bus.publish("db:update", {
-                    "collection": result["collection"],
-                    "key": result["id"],
-                    "value": result,
-                    "source": self.name
-                })
-                logger.log(f"[ARVEngine] DB updated → {result['collection']}:{result['id']}")
-            
-            return result
-        except Exception as e:
-            logger.error(f"[ARVEngine] Error in run: {e}")
-            if hasattr(self, "recover"):
-                return await self.recover(e)
-            return {"error": "Failed to process ARVEngine run"}
-
-    async def analyze_patient(self, data: dict):
-        """
-        Example processing logic.
-        """
-        patient_id = data.get("patient_id")
-        # Placeholder: actual ARV analysis logic
+    async def analyze_record(self, record_id: str, data: dict):
+        """Analyze a record and store the result."""
         result = {
-            "collection": "patients",
-            "id": patient_id,
-            "status": "analyzed",
-            "details": {"notes": "ARV analysis completed"}
+            "id": record_id,
+            "data": data,
+            "analysis": self._perform_analysis(data)
         }
+        self.records[record_id] = result
+
+        await db.set("arv_records", record_id, result, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "arv_records",
+            "key": record_id,
+            "value": result,
+            "source": self.name
+        })
+        log(f"[{self.name}] Analyzed record: {record_id}")
         return result
 
-    async def recover(self, error):
-        """
-        Optional recovery method if something fails.
-        """
-        logger.warn(f"[ARVEngine] Recovering from error: {error}")
-        return {"error": "Recovered from ARVEngine failure"}
+    async def get_analysis(self, record_id: str):
+        """Retrieve analysis for a record."""
+        return await db.get("arv_records", record_id, storage="edge")
+
+    def _perform_analysis(self, data: dict):
+        """Internal method for analysis logic."""
+        # Placeholder logic: can be replaced with advanced ARV analysis
+        return {
+            "summary": f"Data keys: {list(data.keys())}",
+            "length": len(data)
+        }
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
