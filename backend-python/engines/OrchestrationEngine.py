@@ -1,46 +1,56 @@
-from core.EngineBase import EngineBase
-from db.db_manager import db
-from event_bus import event_bus
+from utils.logger import log
+from db.dbManager import db
+from core.eventBus import eventBus
 
-class OrchestrationEngine(EngineBase):
-    """
-    Coordinates and orchestrates workflows across multiple engines and agents.
-    """
+class OrchestrationEngine:
+    name = "OrchestrationEngine"
 
-    async def orchestrate_chain(self, chain: list):
-        """
-        Runs a sequence of engine tasks in order.
-        Each step is a dict: {engine_name: str, input: dict}
-        """
-        results = []
-        for step in chain:
-            engine_name = step.get("engine")
-            input_data = step.get("input", {})
-            
-            # Retrieve engine instance from global registry
-            engine = self.get_engine_instance(engine_name)
-            if not engine:
-                results.append({"error": f"Engine not found: {engine_name}"})
-                continue
-            
-            if hasattr(engine, "run"):
-                result = await engine.run(input_data)
-                results.append({engine_name: result})
-                # Optional: save orchestration step result
-                record = {
-                    "collection": "orchestration_logs",
-                    "id": f"{engine_name}_{hash(str(input_data))}",
-                    "engine": engine_name,
-                    "input": input_data,
-                    "output": result
-                }
-                await db.set(record["collection"], record["id"], record, "edge")
-                await event_bus.publish("db:update", record)
-        return results
+    def __init__(self):
+        self.workflows = {}
 
-    def get_engine_instance(self, name: str):
-        """
-        Access engine instance from global registry.
-        """
-        from core.engine_manager import engine_manager
-        return engine_manager.get(name)
+    async def create_workflow(self, workflow_id: str, workflow_def: dict):
+        """Create a new orchestration workflow."""
+        self.workflows[workflow_id] = workflow_def
+
+        await db.set("workflows", workflow_id, workflow_def, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "workflows",
+            "key": workflow_id,
+            "value": workflow_def,
+            "source": self.name
+        })
+        log(f"[{self.name}] Created workflow: {workflow_id}")
+        return workflow_def
+
+    async def update_workflow(self, workflow_id: str, patch: dict):
+        """Update existing workflow."""
+        existing = await db.get("workflows", workflow_id, storage="edge") or {}
+        updated = {**existing, **patch, "id": workflow_id}
+
+        await db.set("workflows", workflow_id, updated, storage="edge")
+        eventBus.publish("db:update", {
+            "collection": "workflows",
+            "key": workflow_id,
+            "value": updated,
+            "source": self.name
+        })
+        log(f"[{self.name}] Updated workflow: {workflow_id}")
+        return updated
+
+    async def delete_workflow(self, workflow_id: str):
+        """Delete a workflow."""
+        await db.delete("workflows", workflow_id)
+        eventBus.publish("db:delete", {
+            "collection": "workflows",
+            "key": workflow_id,
+            "source": self.name
+        })
+        log(f"[{self.name}] Deleted workflow: {workflow_id}")
+        return {"success": True, "id": workflow_id}
+
+    async def get_workflow(self, workflow_id: str):
+        """Retrieve a workflow."""
+        return await db.get("workflows", workflow_id, storage="edge")
+
+    async def recover(self, err):
+        log(f"[{self.name}] Recovered from error: {err}")
