@@ -1,47 +1,44 @@
-# DeploymentAgent.py
-# Agent responsible for deploying applications, services, or models
+from ..core.dbManager import db
+from ..core.eventBus import eventBus
+from ..utils.logger import logger
+import time
 
 class DeploymentAgent:
-    def __init__(self):
-        self.name = "DeploymentAgent"
-        self.deployment_log = []
-        print("[DeploymentAgent] Initialized")
+    name = "DeploymentAgent"
 
-    def deploy_service(self, service_name: str, version: str, environment: str):
-        deployment_entry = {
+    def __init__(self):
+        # Subscribe to DB events
+        eventBus.subscribe("db:update", self.handle_db_update)
+        eventBus.subscribe("db:delete", self.handle_db_delete)
+
+    async def deploy_service(self, service_name: str, version: str, config: dict):
+        """
+        Deploy a service or application version.
+        """
+        if not service_name or not version:
+            logger.warn(f"[DeploymentAgent] Missing service_name or version")
+            return None
+
+        deployment_record = {
+            "timestamp": time.time(),
             "service": service_name,
             "version": version,
-            "environment": environment,
-            "status": "deployed"
+            "config": config,
+            "status": "initiated"
         }
-        self.deployment_log.append(deployment_entry)
-        print(f"[DeploymentAgent] Deployed {service_name} v{version} to {environment}")
-        return deployment_entry
 
-    def rollback_service(self, service_name: str, environment: str):
-        rollback_entry = {
-            "service": service_name,
-            "environment": environment,
-            "status": "rolled back"
-        }
-        self.deployment_log.append(rollback_entry)
-        print(f"[DeploymentAgent] Rolled back {service_name} in {environment}")
-        return rollback_entry
+        record_id = f"deploy_{int(time.time()*1000)}"
+        await db.set("deployments", record_id, deployment_record, target="edge")
+        eventBus.publish("db:update", {"collection": "deployments", "key": record_id, "value": deployment_record, "source": self.name})
 
-    def get_deployment_history(self):
-        print(f"[DeploymentAgent] Deployment history: {self.deployment_log}")
-        return self.deployment_log
+        logger.log(f"[DeploymentAgent] Deployment initiated: {record_id} → {service_name} v{version}")
+        return {"id": record_id, "deployment": deployment_record}
 
-    async def handle_deployment_request(self, request: dict):
-        action = request.get("action")
-        if action == "deploy":
-            return self.deploy_service(request.get("service_name"), request.get("version"), request.get("environment"))
-        elif action == "rollback":
-            return self.rollback_service(request.get("service_name"), request.get("environment"))
-        elif action == "history":
-            return self.get_deployment_history()
-        else:
-            return {"error": "Invalid action"}
+    async def handle_db_update(self, event: dict):
+        logger.log(f"[DeploymentAgent] DB update received: {event.get('collection')}:{event.get('key')}")
 
-    async def recover(self, error):
-        print(f"[DeploymentAgent] Recovered from error: {error}")
+    async def handle_db_delete(self, event: dict):
+        logger.log(f"[DeploymentAgent] DB delete received: {event.get('collection')}:{event.get('key')}")
+
+    async def recover(self, error: Exception):
+        logger.error(f"[DeploymentAgent] Recovering from error: {error}")
