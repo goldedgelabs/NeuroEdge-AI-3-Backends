@@ -13,23 +13,28 @@ class RoutingAgent:
         eventBus.subscribe("db:update", self.handle_db_update)
         eventBus.subscribe("db:delete", self.handle_db_delete)
 
-    async def route_request(self, collection: str, request: dict) -> dict:
+    async def route_request(self, collection: str, request_data: dict) -> dict:
         """
-        Determine routing for incoming requests.
+        Routes a request to the appropriate engine/agent based on request data.
         """
-        # Example routing logic: choose node based on hash of user ID
-        user_id = request.get("user_id", "unknown")
-        node = f"node_{hash(user_id) % 5}"
+        if not request_data:
+            logger.warn(f"[RoutingAgent] No request data provided")
+            return {"error": "No request data provided"}
+
+        # Example routing logic: pick target based on type
+        target = "default_engine"
+        if request_data.get("type") == "analytics":
+            target = "AnalyticsEngine"
+        elif request_data.get("type") == "security":
+            target = "SecurityAgent"
 
         result = {
-            "timestamp": time.time(),
-            "user_id": user_id,
-            "assigned_node": node,
-            "request": request
+            "request_id": request_data.get("id", f"req_{int(time.time()*1000)}"),
+            "target": target,
+            "timestamp": time.time()
         }
 
-        # Save routing info to DB
-        record_id = f"route_{int(time.time()*1000)}"
+        record_id = f"routing_{int(time.time()*1000)}"
         await db.set(collection, record_id, result, target="edge")
         eventBus.publish("db:update", {
             "collection": collection,
@@ -38,7 +43,7 @@ class RoutingAgent:
             "source": self.name
         })
 
-        logger.log(f"[RoutingAgent] Routing info saved: {collection}:{record_id}")
+        logger.log(f"[RoutingAgent] Routed request saved: {collection}:{record_id} → {target}")
         return result
 
     async def handle_db_update(self, event: dict):
