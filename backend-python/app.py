@@ -1,5 +1,6 @@
 # backend-python/app.py
 
+import asyncio
 from core.dbManager import db
 from core.eventBus import eventBus
 from core.engineManager import EngineManager
@@ -129,7 +130,7 @@ from agents.VerifierAgent import VerifierAgent
 from agents.WorkerAgent import WorkerAgent
 
 # -----------------------------
-# Initialize Engines
+# Initialize Engine Manager
 # -----------------------------
 engine_manager = EngineManager()
 for EngineClass in [
@@ -144,11 +145,10 @@ for EngineClass in [
     SelfImprovementEngine, SimulationEngine, SummarizationEngine, TelemetryEngine,
     TranslationEngine, VisionEngine, VoiceEngine
 ]:
-    instance = EngineClass()
-    engine_manager.register_engine(EngineClass.__name__, instance)
+    engine_manager.register_engine(EngineClass.__name__, EngineClass())
 
 # -----------------------------
-# Initialize Agents
+# Initialize Agent Manager
 # -----------------------------
 agent_manager = AgentManager()
 for AgentClass in [
@@ -168,11 +168,10 @@ for AgentClass in [
     SimulationAgent, SummarizationAgent, SupervisorAgent, SyncAgent, TelemetryAgent,
     TestingAgent, TranslationAgent, UIAgent, ValidationAgent, VerifierAgent, WorkerAgent
 ]:
-    instance = AgentClass()
-    agent_manager.register_agent(AgentClass.__name__, instance)
+    agent_manager.register_agent(AgentClass.__name__, AgentClass())
 
 # -----------------------------
-# Optional: replicate all edge data to shared on startup
+# Optional: replicate edge data to shared
 # -----------------------------
 async def replicate_all_on_startup():
     logger.log("[App] Replicating all edge data to shared...")
@@ -185,9 +184,22 @@ async def replicate_all_on_startup():
 async def bootstrap():
     logger.log("[App] NeuroEdge Python backend starting...")
     await replicate_all_on_startup()
-    logger.log("[App] All engines and agents are initialized and ready.")
+    logger.log("[App] All engines and agents initialized and ready.")
 
-# Run bootstrap if this file is executed directly
+    # Optional: sample execution for testing
+    if "AnalyticsEngine" in engine_manager.engines:
+        result = await engine_manager.engines["AnalyticsEngine"].run({"folder": "test", "role": "user"})
+        logger.log(f"[App] Sample AnalyticsEngine output: {result}")
+
+    if "ResearchAgent" in agent_manager.agents:
+        research_result = await agent_manager.agents["ResearchAgent"].conduct_research("COVID", {"data": [1,2,3,4,5]})
+        logger.log(f"[App] Sample ResearchAgent output: {research_result}")
+
+    all_research = await db.get_all("research_results")
+    logger.log(f"[App] All research_results in DB: {all_research}")
+
+# -----------------------------
+# Run bootstrap
+# -----------------------------
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(bootstrap())
