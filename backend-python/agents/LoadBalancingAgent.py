@@ -1,34 +1,40 @@
-# LoadBalancingAgent.py
-# Agent responsible for distributing workload evenly across available nodes or services
+# backend-python/agents/LoadBalancingAgent.py
+
+from ..core.dbManager import db
+from ..core.eventBus import eventBus
+from ..utils.logger import logger
+import time
+import random
 
 class LoadBalancingAgent:
+    name = "LoadBalancingAgent"
+
     def __init__(self):
-        self.name = "LoadBalancingAgent"
-        self.nodes = []
+        # Subscribe to DB events
+        eventBus.subscribe("db:update", self.handle_db_update)
+        eventBus.subscribe("db:delete", self.handle_db_delete)
 
-    def register_node(self, node_id: str):
-        if node_id not in self.nodes:
-            self.nodes.append(node_id)
-            print(f"[LoadBalancingAgent] Node registered: {node_id}")
-
-    def unregister_node(self, node_id: str):
-        if node_id in self.nodes:
-            self.nodes.remove(node_id)
-            print(f"[LoadBalancingAgent] Node unregistered: {node_id}")
-
-    async def balance(self, task: dict):
+    async def distribute_tasks(self, tasks: list, nodes: list):
         """
-        Distribute task to a node using round-robin or other strategy
+        Distribute tasks evenly across available nodes.
         """
-        if not self.nodes:
-            print("[LoadBalancingAgent] No nodes available to balance task")
-            return {"status": "failed", "reason": "no nodes"}
-        
-        node = self.nodes[0]
-        # Simple rotation
-        self.nodes = self.nodes[1:] + [node]
-        print(f"[LoadBalancingAgent] Task assigned to node: {node}")
-        return {"status": "success", "node": node, "task": task}
+        if not tasks or not nodes:
+            logger.warn(f"[LoadBalancingAgent] No tasks or nodes provided")
+            return {}
 
-    async def recover(self, error):
-        print(f"[LoadBalancingAgent] Recovered from error: {error}")
+        distribution = {node: [] for node in nodes}
+        for i, task in enumerate(tasks):
+            node = nodes[i % len(nodes)]
+            distribution[node].append(task)
+
+        logger.log(f"[LoadBalancingAgent] Tasks distributed: {distribution}")
+        return distribution
+
+    async def handle_db_update(self, event: dict):
+        logger.log(f"[LoadBalancingAgent] DB update received: {event.get('collection')}:{event.get('key')}")
+
+    async def handle_db_delete(self, event: dict):
+        logger.log(f"[LoadBalancingAgent] DB delete received: {event.get('collection')}:{event.get('key')}")
+
+    async def recover(self, error: Exception):
+        logger.error(f"[LoadBalancingAgent] Recovering from error: {error}")
