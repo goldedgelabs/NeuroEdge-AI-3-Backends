@@ -1,25 +1,14 @@
-import logging
-import sys
+# backend-python/utils/logger.py
+import time
 
-# Configure global logger
-logger = logging.getLogger("NeuroEdge")
-logger.setLevel(logging.DEBUG)
+class Logger:
+    def log(self, msg):
+        print(f"[LOG {time.strftime('%H:%M:%S')}] {msg}")
 
-# Console handler
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.DEBUG)
+    def warn(self, msg):
+        print(f"[WARN {time.strftime('%H:%M:%S')}] {msg}")
 
-# Formatter
-formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s")
-console_handler.setFormatter(formatter)
+    def error(self, msg):
+        print(f"[ERROR {time.strftime('%H:%M:%S')}] {msg}")
 
-logger.addHandler(console_handler)
-
-def log(msg: str):
-    logger.info(msg)
-
-def warn(msg: str):
-    logger.warning(msg)
-
-def error(msg: str):
-    logger.error(msg)
+logger = Logger()
